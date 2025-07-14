@@ -1,0 +1,88 @@
+//@version=5
+strategy("ETH Стратегия скальпинга", 
+     overlay=true, 
+     initial_capital=70, // Начальный капитал $70
+     default_qty_value=95,  // Размер позиции в % от капитала
+     default_qty_type=strategy.percent_of_equity, 
+     commission_type=strategy.commission.percent, 
+     commission_value=0.075) // Комиссия Binance Futures
+
+// Параметры для более частых сигналов
+fastEMA = input.int(5, "Быстрая EMA", minval=1, maxval=50)
+slowEMA = input.int(12, "Медленная EMA", minval=1, maxval=100)
+
+// Короткий RSI для быстрой реакции на перекупленность/перепроданность
+rsiLength = input.int(7, "Период RSI", minval=1, maxval=30)
+rsiOverbought = input.int(75, "RSI перекупленность", minval=50, maxval=100)
+rsiOversold = input.int(25, "RSI перепроданность", minval=1, maxval=50)
+
+// Параметры для скальпинга
+takeProfitPct = input.float(0.5, "Тейк-профит (%)", minval=0.1, step=0.1)
+stopLossPct = input.float(0.3, "Стоп-лосс (%)", minval=0.1, step=0.1)
+
+// Дополнительные фильтры для уменьшения шума
+useVolFilter = input.bool(true, "Использовать фильтр объема")
+volMultiplier = input.float(1.5, "Множитель объема", minval=1.0, step=0.1)
+useADXFilter = input.bool(true, "Использовать фильтр тренда (ADX)")
+adxThreshold = input.int(20, "Мин. значение ADX", minval=5, maxval=50)
+adxLength = input.int(14, "Период ADX", minval=1)
+
+// Расчет индикаторов
+fastMA = ta.ema(close, fastEMA)
+slowMA = ta.ema(close, slowEMA)
+rsiValue = ta.rsi(close, rsiLength)
+
+// Расчет ADX для фильтрации слабых трендов
+adx = ta.adx(14)
+
+// Расчет объема
+avgVolume = ta.sma(volume, 20)
+isVolHigh = volume > avgVolume * volMultiplier
+
+// Определение сигналов с учетом фильтров
+longCondition = ta.crossover(fastMA, slowMA) and 
+               rsiValue < 50 and 
+               strategy.position_size == 0 and
+               (!useVolFilter or isVolHigh) and
+               (!useADXFilter or adx > adxThreshold)
+
+shortCondition = ta.crossunder(fastMA, slowMA) and 
+                rsiValue > 50 and 
+                strategy.position_size == 0 and
+                (!useVolFilter or isVolHigh) and
+                (!useADXFilter or adx > adxThreshold)
+
+// Вход в позиции с установкой TP и SL в процентах
+if (longCondition)
+    longEntryPrice = close
+    longTakeProfit = longEntryPrice * (1 + takeProfitPct / 100)
+    longStopLoss = longEntryPrice * (1 - stopLossPct / 100)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("TP/SL Long", "Long", limit=longTakeProfit, stop=longStopLoss)
+
+if (shortCondition)
+    shortEntryPrice = close
+    shortTakeProfit = shortEntryPrice * (1 - takeProfitPct / 100)
+    shortStopLoss = shortEntryPrice * (1 + stopLossPct / 100)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("TP/SL Short", "Short", limit=shortTakeProfit, stop=shortStopLoss)
+
+// Дополнительные условия выхода (по RSI)
+if (strategy.position_size > 0 and rsiValue > rsiOverbought)
+    strategy.close("Long", comment="RSI Overbought")
+
+if (strategy.position_size < 0 and rsiValue < rsiOversold)
+    strategy.close("Short", comment="RSI Oversold")
+
+// Визуализация
+plot(fastMA, "Быстрая EMA", color.blue, 1)
+plot(slowMA, "Медленная EMA", color.red, 1)
+
+// Визуализация сигналов входа
+plotshape(longCondition, "Long Signal", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Short Signal", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Индикатор положения на рынке
+bgcolor(strategy.position_size > 0 ? color.new(color.green, 95) : 
+        strategy.position_size < 0 ? color.new(color.red, 95) : 
+        na)

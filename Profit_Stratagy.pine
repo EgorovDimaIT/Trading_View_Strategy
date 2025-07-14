@@ -1,0 +1,78 @@
+// Прибыльная стратегия для торговли Bitcoin Futures
+// © logisticstoukraine
+
+//@version=5
+strategy("Стратегия Clude3.7 - Бэктест", 
+     overlay=true, 
+     initial_capital=10000, // Начальный капитал для бэктеста
+     default_qty_value=10,  // Размер позиции в % от капитала
+     default_qty_type=strategy.percent_of_equity, 
+     commission_type=strategy.commission.percent, // Тип комиссии
+     commission_value=0.075) // Размер комиссии (например, 0.075% для Binance Futures)
+
+// Параметры стратегии
+fastLength = input.int(9, "Быстрая EMA", minval=1)
+slowLength = input.int(21, "Медленная EMA", minval=1)
+rsiLength = input.int(14, "Период RSI", minval=1)
+rsiOverbought = input.int(70, "RSI перекупленность", minval=1, maxval=100)
+rsiOversold = input.int(30, "RSI перепроданность", minval=1, maxval=100)
+atrPeriod = input.int(14, "ATR период", minval=1)
+atrMultiplier = input.float(2.0, "ATR множитель для стоп-лосса", minval=0.1, step=0.1)
+
+// Расчет индикаторов
+fastEMA = ta.ema(close, fastLength)
+slowEMA = ta.ema(close, slowLength)
+rsiValue = ta.rsi(close, rsiLength)
+atrValue = ta.atr(atrPeriod)
+
+// Переменные для хранения стоп-лоссов (важно для динамических стопов)
+var float longStopLoss = na
+var float shortStopLoss = na
+
+// Условия для входа в длинную позицию
+longCondition = ta.crossover(fastEMA, slowEMA) and rsiValue < 50 and strategy.opentrades == 0 // Входим, только если нет открытых позиций
+
+// Условия для входа в короткую позицию
+shortCondition = ta.crossunder(fastEMA, slowEMA) and rsiValue > 50 and strategy.opentrades == 0 // Входим, только если нет открытых позиций
+
+// --- Логика входа и установки стоп-лоссов ---
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+    longStopLoss := close - atrValue * atrMultiplier // Устанавливаем SL при входе
+
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+    shortStopLoss := close + atrValue * atrMultiplier // Устанавливаем SL при входе
+
+// --- Логика выхода из позиций ---
+
+// Выход из длинной позиции по обратному сигналу ИЛИ по достижению RSI перекупленности
+if (strategy.position_size > 0) // Если есть открытая длинная позиция
+    if (ta.crossunder(fastEMA, slowEMA) or rsiValue > rsiOverbought)
+        strategy.close("Long", comment="Exit Long Signal/RSI OB")
+    // Применяем стоп-лосс
+    strategy.exit("SL Long", from_entry="Long", stop=longStopLoss)
+
+
+// Выход из короткой позиции по обратному сигналу ИЛИ по достижению RSI перепроданности
+if (strategy.position_size < 0) // Если есть открытая короткая позиция
+    if (ta.crossover(fastEMA, slowEMA) or rsiValue < rsiOversold)
+        strategy.close("Short", comment="Exit Short Signal/RSI OS")
+    // Применяем стоп-лосс
+    strategy.exit("SL Short", from_entry="Short", stop=shortStopLoss)
+
+
+// Визуализация индикаторов
+plot(fastEMA, "Быстрая EMA", color.blue, 2)
+plot(slowEMA, "Медленная EMA", color.red, 2)
+hline(rsiOverbought, "RSI Overbought", color.new(color.gray, 50), hline.style_dashed)
+hline(rsiOversold, "RSI Oversold", color.new(color.gray, 50), hline.style_dashed)
+
+// Визуализация стоп-лоссов на графике (только когда позиция открыта)
+plot(strategy.position_size > 0 ? longStopLoss : na, "Long SL", color.orange, style=plot.style_linebr, linewidth=2)
+plot(strategy.position_size < 0 ? shortStopLoss : na, "Short SL", color.orange, style=plot.style_linebr, linewidth=2)
+
+
+// Визуальная индикация фактических входов (полезно для отладки, если сигналы не совпадают с реальными входами из-за фильтров)
+// plotshape(longCondition and strategy.opentrades == 0, "Потенциальный Buy", shape.triangleup, location.belowbar, color.new(color.green, 50), size=size.tiny)
+// plotshape(shortCondition and strategy.opentrades == 0, "Потенциальный Sell", shape.triangledown, location.abovebar, color.new(color.red, 50), size=size.tiny)
