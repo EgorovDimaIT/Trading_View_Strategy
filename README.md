@@ -1,0 +1,2 @@
+# Trading_View_Strategy
+Pinescript Trading_View_Strategy
